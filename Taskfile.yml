@@ -1,0 +1,64 @@
+version: '3'
+
+vars:
+  BIN_DIR: '{{.ROOT_DIR}}/bin'
+  GOFUMPT_VERSION: 'v0.8.0'
+  GCI_VERSION: 'v0.13.6'
+  GOLANGCI_LINT_VERSION: 'v2.1.5'
+  OGEN_VERSION: 'v1.14.0'
+  MIGRATE_VERSION: 'v4.17.0'
+
+  GOFUMPT: '{{.BIN_DIR}}/gofumpt'
+  GCI: '{{.BIN_DIR}}/gci'
+  GOLANGCI_LINT: '{{.BIN_DIR}}/golangci-lint'
+  OGEN: '{{.BIN_DIR}}/ogen'
+  MIGRATE: '{{.BIN_DIR}}/migrate'
+
+  OPENAPI_PR_V1: '{{.ROOT_DIR}}/shared/api/pr/v1/pr.openapi.yaml'
+  OAPI_TARGET:   '{{.ROOT_DIR}}/shared/pkg/openapi/pr/v1'
+  PACKAGE_NAME:  'pr'
+
+  APP: 'pr-reviewer'
+  HTTP_PORT: '8080'
+  DB_DSN: 'postgres://postgres:postgres@localhost:5432/prdb?sslmode=disable'
+
+tasks:
+  tools:install:
+    desc: Install gofumpt, gci, golangci-lint, ogen, migrate
+    cmds:
+      - mkdir -p {{.BIN_DIR}}
+      - |
+        [ -f {{.GOFUMPT}} ] || GOBIN={{.BIN_DIR}} go install mvdan.cc/gofumpt@{{.GOFUMPT_VERSION}}
+        [ -f {{.GCI}} ] || GOBIN={{.BIN_DIR}} go install github.com/daixiang0/gci@{{.GCI_VERSION}}
+        [ -f {{.GOLANGCI_LINT}} ] || GOBIN={{.BIN_DIR}} go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{.GOLANGCI_LINT_VERSION}}
+        [ -f {{.OGEN}} ] || GOBIN={{.BIN_DIR}} go install github.com/ogen-go/ogen/cmd/ogen@{{.OGEN_VERSION}}
+        [ -f {{.MIGRATE}} ] || GOBIN={{.BIN_DIR}} go install github.com/golang-migrate/migrate/v4/cmd/migrate@{{.MIGRATE_VERSION}}
+
+  gen:oapi:
+    desc: Generate ogen code from OpenAPI
+    deps: [ tools:install ]
+    cmds:
+      - >
+        {{.OGEN}}
+        --target "{{.OAPI_TARGET}}"
+        --package "{{.PACKAGE_NAME}}"
+        --clean
+        "{{.OPENAPI_PR_V1}}"
+
+  lint:
+    desc: Run golangci-lint
+    deps: [ tools:install ]
+    cmds:
+      - '{{.GOLANGCI_LINT}} run ./... --config=.golangci.yml'
+
+  fmt:
+    desc: Format sources (gofumpt + gci)
+    deps: [ tools:install ]
+    vars:
+      MODULE:
+        sh: 'go list -m'
+    cmds:
+      - '{{.GOFUMPT}} -extra -w $(find . -type f -name "*.go" ! -path "./shared/pkg/openapi/pr/v1/*" ! -path "*/mocks/*")'
+      - '{{.GCI}} write -s standard -s default -s "prefix({{.MODULE}})" $(find . -type f -name "*.go" ! -path "./shared/pkg/openapi/pr/v1/*" ! -path "*/mocks/*")'
+
+

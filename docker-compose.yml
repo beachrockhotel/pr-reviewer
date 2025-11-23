@@ -1,0 +1,43 @@
+version: "3.9"
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-prdb}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-prdb}"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+    ports: ["5432:5432"]
+    volumes: [ "pgdata:/var/lib/postgresql/data" ]
+
+  migrator:
+    image: migrate/migrate:v4.17.0
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@db:5432/prdb?sslmode=disable}
+    command: [ "-path", "/migrations", "-database", "${DATABASE_URL}", "up" ]
+    volumes:
+      - ./migrations:/migrations:ro
+    restart: on-failure
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      HTTP_PORT: ${HTTP_PORT:-8080}
+      DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@db:5432/prdb?sslmode=disable}
+      DB_DSN: ${DATABASE_URL:-postgres://postgres:postgres@db:5432/prdb?sslmode=disable}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      db:       { condition: service_healthy }
+      migrator: { condition: service_completed_successfully }
+    ports: ["8080:8080"]
+
+volumes:
+  pgdata:
